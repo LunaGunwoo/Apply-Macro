@@ -1,8 +1,6 @@
 import re
 import time
-import win32api
-import win32con
-from pywinauto import Application, Desktop, keyboard, findwindows
+from pywinauto import Application, Desktop, findwindows
 
 # --- 설정 ---
 parent_process_name = "MDmain.exe"
@@ -60,25 +58,26 @@ def combined_popup_handler():
                 print(f"\n... 인증번호 팝업 처리 중 오류: {e}")
                 time.sleep(0.05)
 
-            # --- 2. 일반 경고 팝업 처리 로직 ---
+            # --- 2. 일반 경고 팝업(만석) 처리 로직 ---
             try:
-                warning_windows = app.windows(title=warning_popup_title)
-                if len(warning_windows) >= 2:
-                    print(f"\n⚠️  '{warning_popup_title}' 경고 팝업 감지!")
-                    popup_handle = warning_windows[-1].handle
-
-                    print("   - [1단계] 전역 Enter 키 입력을 시도합니다...")
-                    keyboard.send_keys("{LEFT}")
-                    keyboard.send_keys("{ENTER}")
-                    time.sleep(0.05)
-
-                    if len(app.windows(title=warning_popup_title)) < 2:
-                        print("   - Enter 키로 팝업이 닫혔습니다.")
+                dialog_handles = findwindows.find_windows(
+                    title=warning_popup_title, class_name="#32770"
+                )
+                for handle in dialog_handles:
+                    win = Desktop(backend="win32").window(handle=handle)
+                    try:
+                        static = win.child_window(
+                            class_name="Static", title="이 과목은 만석입니다"
+                        )
+                        if static.exists():
+                            print(f"\n⚠️  '이 과목은 만석입니다' 경고 팝업 감지!")
+                            ok_btn = win.child_window(class_name="Button", title="OK")
+                            ok_btn.click()
+                            print("   - OK 클릭 완료!")
+                            time.sleep(0.05)
+                            break
+                    except Exception:
                         continue
-
-                    print("   - [2단계] WM_CLOSE 메시지를 직접 보냅니다...")
-                    win32api.PostMessage(popup_handle, win32con.WM_CLOSE, 0, 0)
-                    time.sleep(0.05)
             except Exception as e:
                 print(f"\n... 일반 경고 팝업 처리 중 오류: {e}")
                 time.sleep(0.05)
