@@ -50,7 +50,6 @@ def combined_popup_handler():
 
                         print("   - 인증번호 입력 및 'OK' 클릭...")
                         edit_box.type_keys(auth_code, with_spaces=False)
-                        time.sleep(0.05)  # 아주 짧은 딜레이
                         ok_button.click()
                         print("   - 처리 완료!")
                         time.sleep(0.05)  # 창 닫히는 시간 대기
