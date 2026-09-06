@@ -43,7 +43,7 @@ class PopupMonitor:
         process_name: str = "MDmain.exe",
         auth_popup_title: str = "대학 수강신청(과부하방지)",
         warning_popup_title: str = "수강신청",
-        search_interval: float = 0.05,
+        search_interval: float = 0.01,
         connection_check_interval: float = 0.25,
         reconnect_interval: float = 1.0,
         connect_timeout: float = 0.25,
@@ -227,7 +227,6 @@ class PopupMonitor:
                     popup_window = Desktop(backend="win32").window(
                         handle=auth_windows[0]
                     )
-                    popup_window.set_focus()
                     auth_label = popup_window.child_window(auto_id="Label")
                     match = re.search(r"\[(\d+)\]", auth_label.window_text())
 
@@ -245,9 +244,11 @@ class PopupMonitor:
                         auto_id="OKButton",
                     )
 
-                    edit_box.type_keys(auth_code, with_spaces=False)
+                    # EM_REPLACESEL updates the Win32 edit control in one
+                    # synchronous operation instead of emitting each digit as
+                    # a separate keyboard event.
+                    edit_box.set_edit_text(auth_code)
                     ok_button.click()
-                    self._stop_event.wait(0.05)
             finally:
                 self._input_in_progress.clear()
 

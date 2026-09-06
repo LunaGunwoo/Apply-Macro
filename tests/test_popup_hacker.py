@@ -45,6 +45,12 @@ def make_monitor(events: list[MonitorEvent]) -> PopupMonitor:
     )
 
 
+def test_default_popup_search_interval_is_low_latency() -> None:
+    monitor = PopupMonitor(lambda event: None)
+
+    assert monitor.search_interval == 0.01
+
+
 def test_reconnects_and_reports_connection_transitions(monkeypatch) -> None:
     FakeApplication.available = False
     monkeypatch.setattr(popup_hacker, "Application", FakeApplication)
@@ -148,9 +154,8 @@ def test_auth_popup_restores_cursor_position(monkeypatch) -> None:
 
     class FakeEditBox:
         @staticmethod
-        def type_keys(text: str, *, with_spaces: bool) -> None:
+        def set_edit_text(text: str) -> None:
             assert text == "1234"
-            assert not with_spaces
             cursor_position[:] = [0, 500]
 
     class FakeButton:
@@ -159,10 +164,6 @@ def test_auth_popup_restores_cursor_position(monkeypatch) -> None:
             return None
 
     class FakePopup:
-        @staticmethod
-        def set_focus() -> None:
-            cursor_position[:] = [0, 500]
-
         @staticmethod
         def child_window(*, auto_id: str, title: str | None = None):
             if auto_id == "Label":
