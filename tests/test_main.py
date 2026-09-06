@@ -34,7 +34,7 @@ def test_registers_left_alt_top_row_digit_hotkeys(monkeypatch) -> None:
     app._register_mouse_hotkeys()
 
     assert registrations == [
-        ((LEFT_ALT_SCAN_CODE, scan_code), (digit,), True)
+        ((LEFT_ALT_SCAN_CODE, scan_code), (digit,), False)
         for digit, scan_code in TOP_ROW_DIGIT_SCAN_CODES.items()
     ]
     assert app.keyboard_hotkeys == [f"hotkey-{index}" for index in range(1, 11)]

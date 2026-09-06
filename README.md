@@ -27,6 +27,7 @@ Python, uv, VSCode를 별도로 설치할 필요가 없습니다.
 4. `1~9 클릭 후 0번 위치 클릭`을 체크하면 `1`~`9` 위치를 클릭한 다음 `0` 위치도 이어서 클릭합니다.
 
 일반 숫자키, `Shift + 숫자키`, 오른쪽 Alt, 숫자패드는 마우스 단축키로 사용되지 않습니다.
+단축키는 입력을 감지만 하고 차단하지 않으므로 Apply Macro 실행 중에도 일반 키보드 입력을 그대로 사용할 수 있습니다.
 
 프로그램을 종료하려면 Apply Macro 창의 닫기 버튼을 누르세요.
 
@@ -43,7 +44,7 @@ Python, uv, VSCode를 별도로 설치할 필요가 없습니다.
 PowerShell에서 ZIP 파일의 해시를 확인하는 예시는 다음과 같습니다.
 
 ```powershell
-Get-FileHash -Algorithm SHA256 .\ApplyMacro-windows-x64-v0.2.1.zip
+Get-FileHash -Algorithm SHA256 .\ApplyMacro-windows-x64-v0.2.2.zip
 ```
 
 ## 개발 환경
@@ -71,14 +72,14 @@ uv run pyinstaller --noconfirm --clean ApplyMacro.spec
 `pyproject.toml`의 버전과 같은 `vX.Y.Z` 태그를 푸시하면 GitHub Actions가 Python 3.14.2로 Windows x64 실행 파일을 빌드합니다. ZIP, ZIP SHA-256, EXE SHA-256은 Actions artifact와 Draft Release에 첨부되며 자동으로 공개되지 않습니다.
 
 ```powershell
-git tag v0.2.1
-git push origin v0.2.1
+git tag v0.2.2
+git push origin v0.2.2
 ```
 
 Actions에서 받은 ZIP을 실제로 다운로드해 최신 Microsoft Defender로 ZIP과 압축 해제 폴더를 검사하고, EXE 실행까지 확인하세요. 검증을 통과한 경우에만 Draft를 공개합니다.
 
 ```powershell
-gh release edit v0.2.1 --draft=false --latest
+gh release edit v0.2.2 --draft=false --latest
 ```
 
 단일 EXE가 Defender에 탐지되면 해당 Draft를 공개하지 않고 PyInstaller `onedir` 방식의 portable 폴더 ZIP으로 다시 빌드하고 같은 검증을 반복합니다.

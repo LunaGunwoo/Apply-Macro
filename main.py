@@ -230,7 +230,10 @@ class ApplyMacroApp:
                     (LEFT_ALT_SCAN_CODE, scan_code),
                     self._queue_digit,
                     args=(digit,),
-                    suppress=True,
+                    # Suppressed modifier hotkeys can leave Alt logically held
+                    # on Windows. Observe the shortcut without blocking or
+                    # replaying any keyboard events.
+                    suppress=False,
                 )
                 self.keyboard_hotkeys.append(hotkey)
         except Exception as exc:  # noqa: BLE001 - keyboard exposes OS-specific failures
