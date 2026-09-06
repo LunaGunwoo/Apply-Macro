@@ -1,51 +1,77 @@
-# UV 설치 권장
+# Apply Macro
 
-[UV 설치하러 가기](https://docs.astral.sh/uv/getting-started/installation/)
+광운대학교 수강신청 프로그램에서 왼쪽 Alt와 숫자키로 지정한 위치를 클릭하고, 인증번호와 만석 경고 팝업을 자동으로 처리하는 Windows용 도구입니다.
 
----
+## 일반 사용자: EXE 실행
 
-# 초보자 가이드
+1. [최신 Release](https://github.com/LunaGunwoo/Apply-Macro/releases/latest)에서 `ApplyMacro-windows-x64-vX.Y.Z.zip`을 다운로드합니다.
+2. ZIP 파일의 압축을 해제합니다.
+3. 압축을 푼 폴더의 `ApplyMacro.exe`를 더블클릭합니다.
+4. 수강신청 프로그램을 실행하면 Apply Macro가 `MDmain.exe`를 자동으로 찾아 연결합니다. 두 프로그램의 실행 순서는 상관없습니다.
 
-1. **[VSCode 설치](https://code.visualstudio.com/download)**
-2. **UV 설치**
-   - PowerShell 실행 후 [UV 설치 홈페이지](https://docs.astral.sh/uv/getting-started/installation/)에 있는 명령어를 복사하여 붙여넣으세요.
-   - 설치 확인: PowerShell에서 `uv`를 입력했을 때...
-     - ❌ **설치 실패**: 빨간색 글씨로 에러가 나온다면 설치되지 않은 상태입니다.
-     - ✅ **설치 성공**: 흰색, 파란색 등 사용 방법 설명이 나온다면 설치된 상태입니다.
-   - 설치가 완료되면 PowerShell은 닫아도 됩니다.
-3. **코드 다운로드**
-   - 현재 Github 페이지 상단의 초록색 **Code** 버튼을 클릭한 후 **Download ZIP**을 클릭하세요.
-4. **VSCode 실행**
-5. **폴더 열기**
-   - 다운로드한 ZIP 파일의 압축을 해제합니다.
-   - **압축 해제된 폴더 자체**를 VSCode 화면 위로 드래그하여 엽니다.
-6. **터미널 실행**
-   - VSCode에서 **【 L_Ctrl + L_Shift + ` 】** (숫자 1 왼쪽 키)를 **2번** 눌러 터미널 2개를 엽니다.
+Python, uv, VSCode를 별도로 설치할 필요가 없습니다.
 
-7. **프로그램 실행**
-   - 화면 하단 TERMINAL 영역 오른쪽 리스트에서 각각의 터미널을 선택해 아래 명령어를 입력합니다.
+### 화면 상태
 
-**터미널 1 (수강신청 프로그램을 켜놓은 상태에서 실행):**
+- 노란색 `연결 대기 중`: 수강신청 프로그램을 찾는 중입니다.
+- 초록색 `연결됨`: 팝업 자동 처리를 사용할 수 있습니다.
+- 빨간색 `연결 끊김 — 재연결 중`: 연결이 끊겨 다시 찾는 중입니다.
+- `인증번호 자동 입력`과 `만석 경고 자동 닫기`는 각각 체크박스로 켜고 끌 수 있으며 기본값은 모두 켜짐입니다.
+- 최근 연결 변화, 팝업 처리 결과, 오류는 오른쪽 `최근 처리 내역`에서 확인할 수 있습니다.
 
-```shell
-uv run popup_hacker.py
+## 마우스 위치 단축키
+
+1. `설정 모드 켜짐` 상태에서 `왼쪽 Alt + 상단 숫자키 0~9`를 누르면 현재 마우스 위치가 해당 숫자에 저장됩니다.
+2. `끄기` 버튼을 눌러 설정 모드를 끕니다.
+3. `왼쪽 Alt + 상단 숫자키`를 누르면 저장한 위치가 클릭됩니다.
+4. `1~9 클릭 후 0번 위치 클릭`을 체크하면 `1`~`9` 위치를 클릭한 다음 `0` 위치도 이어서 클릭합니다.
+
+일반 숫자키, `Shift + 숫자키`, 오른쪽 Alt, 숫자패드는 마우스 단축키로 사용되지 않습니다.
+
+프로그램을 종료하려면 Apply Macro 창의 닫기 버튼을 누르세요.
+
+## Windows 보안 경고 및 PC방 사용
+
+현재 Release는 코드 서명되지 않았기 때문에 Windows에서 `Windows의 PC 보호` 경고가 표시될 수 있습니다.
+
+- 이 GitHub 저장소에서 직접 받은 파일인지 확인하세요.
+- Release에 함께 첨부된 `.sha256` 파일과 다운로드한 ZIP의 SHA-256 값이 일치하는지 확인하세요.
+- 개인 PC에서 출처와 해시를 확인했다면 경고 창의 `추가 정보`에서 실행할 수 있습니다.
+- PC방이나 관리되는 PC에서 실행 선택지가 없거나 백신이 파일을 차단하면 해당 PC의 정책을 우회하지 마세요. 관리자 정책과 보안 프로그램에 따라 실행이 불가능할 수 있습니다.
+
+PowerShell에서 ZIP 파일의 해시를 확인하는 예시는 다음과 같습니다.
+
+```powershell
+Get-FileHash -Algorithm SHA256 .\ApplyMacro-windows-x64-v0.2.0.zip
 ```
 
-**터미널 2:**
+## 개발 환경
 
-```shell
+개발에는 [uv](https://docs.astral.sh/uv/getting-started/installation/)를 사용합니다.
+
+```powershell
+uv sync --group dev
 uv run main.py
 ```
 
-- **터미널 1**
-  - `popup_hacker.py`는 CLI에서 작동되므로 팝업창 닫히는 내용은 **터미널 1**을 꼭 열어놓고 확인하세요.
-- **터미널 2**
-  - GUI로 보이니 굳이 터미널 2는 열어놓으실 필요 없습니다. **터미널 1**에 적히는 내용만 참고하세요.
+`popup_hacker.py`는 GUI에서 사용하는 내부 모듈이므로 별도 터미널에서 실행하지 않습니다.
 
----
+### 테스트와 로컬 빌드
 
-### ⚠️ 주의 및 참고 사항
+```powershell
+uv run pytest
+uv run pyinstaller --noconfirm --clean ApplyMacro.spec
+```
 
-- **종료 방법:** 실행을 종료하려면 터미널에서 `Ctrl` + `C`를 누르세요.
-- **popup_hacker.py:** 광운대 수강신청 창이 활성화된 상태에서 실행하면 팝업창 숫자를 자동으로 입력하고 닫습니다.
-- **main.py:** 실행 시 1, 2, 3... 등의 숫자로 마우스 위치를 매핑하여 사용할 수 있습니다.
+빌드된 단일 실행 파일은 `dist\ApplyMacro.exe`에 생성됩니다.
+
+### GitHub Release 만들기
+
+`pyproject.toml`의 버전과 같은 `vX.Y.Z` 태그를 푸시하면 GitHub Actions가 Windows x64 실행 파일을 빌드하고 ZIP과 SHA-256 파일을 Release에 자동으로 첨부합니다.
+
+```powershell
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+태그를 만들기 전에 테스트와 로컬 EXE 실행을 먼저 확인하세요.

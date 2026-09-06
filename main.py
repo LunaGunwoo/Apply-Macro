@@ -1,147 +1,359 @@
-from tkinter import *
-from typing import Dict
-import pyautogui
+from __future__ import annotations
+
+import queue
+import tkinter as tk
+from collections import deque
+from datetime import datetime
+
 import keyboard
+import pyautogui
+
+from popup_hacker import ConnectionState, EventKind, MonitorEvent, PopupMonitor
 
 Point = pyautogui.Point
 
-# 설정 모드 및 마우스 위치 변수
-is_set_mode: bool = True
-positions: Dict[str, Point] = {}
-
-# Window 구성 파라메터
-window = Tk()
-window.title("Apply Macro")
-window.geometry("800x400")
-window.resizable(False, False)
-
-default_font = ("Helvetica", 14, "bold")
-default_color: Dict[bool, str] = {True: "skyblue", False: "pink"}
-
-# 체크박스의 상태를 저장할 Tkinter 전용 변수
-is_click_zero_after = BooleanVar()
-is_click_zero_after.set(False)
-
-
-# 메인 함수
-def change_set_mode():
-    global is_set_mode
-    is_set_mode = not is_set_mode
-    mode_label.config(
-        bg=default_color[is_set_mode],
-        text="설정 모드 " + ("켜짐" if is_set_mode else "꺼짐"),
-    )
-    mode_button.config(
-        text="끄기" if is_set_mode else "켜기",
-    )
+# Windows Set 1 scan codes are used so the shortcut only matches the physical
+# number row. The named digit keys also include numpad scan codes in `keyboard`.
+LEFT_ALT_SCAN_CODE = 56
+TOP_ROW_DIGIT_SCAN_CODES = {
+    "1": 2,
+    "2": 3,
+    "3": 4,
+    "4": 5,
+    "5": 6,
+    "6": 7,
+    "7": 8,
+    "8": 9,
+    "9": 10,
+    "0": 11,
+}
 
 
-def update_mouse_position():
-    try:
-        x, y = pyautogui.position()
-        mouse_label.config(text=f"마우스 위치: ({x}, {y})")
-        window.after(100, update_mouse_position)
-    except pyautogui.FailSafeException:
-        print("Fail-safe triggered. Exiting.")
-        window.quit()
+class ApplyMacroApp:
+    LOG_LIMIT = 100
 
+    def __init__(self, window: tk.Tk) -> None:
+        self.window = window
+        self.window.title("Apply Macro")
+        self.window.geometry("900x680")
+        self.window.minsize(900, 680)
 
-def add_position(key: str):
-    positions[key] = pyautogui.position()
-    position_labels[int(key)].config(
-        bg=default_color[True],
-        text=f"위치{key} ({positions[key].x}, {positions[key].y})로 할당됨",
-    )
+        self.default_font = ("Helvetica", 14, "bold")
+        self.colors = {True: "skyblue", False: "pink"}
+        self.positions: dict[str, Point] = {}
+        self.position_labels: list[tk.Label] = []
+        self.is_set_mode = True
+        self.is_closing = False
+        self.keyboard_hotkeys: list[object] = []
 
+        self.monitor_events: queue.Queue[MonitorEvent] = queue.Queue()
+        self.key_events: queue.Queue[str] = queue.Queue()
+        self.log_lines: deque[tuple[str, EventKind]] = deque(maxlen=self.LOG_LIMIT)
 
-def click_given_position(key: str):
-    pyautogui.click(x=positions[key].x, y=positions[key].y)
+        self.is_click_zero_after = tk.BooleanVar(value=False)
+        self.is_auth_enabled = tk.BooleanVar(value=True)
+        self.is_warning_enabled = tk.BooleanVar(value=True)
 
+        self._build_ui()
 
-# --- 수정된 부분 ---
-def handle_key_press(event):
-    global is_set_mode
-    key: str = event.name
-    if not ("0" <= key <= "9"):
-        return
+        self.popup_monitor = PopupMonitor(self.monitor_events.put)
+        self.popup_monitor.start()
 
-    if is_set_mode:
-        add_position(key)
-    else:
-        if is_click_zero_after.get() and "1" <= key <= "9":
+        self._register_mouse_hotkeys()
+
+        self.window.protocol("WM_DELETE_WINDOW", self.close)
+        self.window.after(100, self._update_mouse_position)
+        self.window.after(50, self._drain_queues)
+
+    def _build_ui(self) -> None:
+        option_frame = tk.Frame(self.window)
+        option_frame.pack(side="top", fill="x", padx=10, pady=(10, 5))
+
+        self.mode_label = tk.Label(
+            option_frame,
+            text="설정 모드 켜짐",
+            bg=self.colors[self.is_set_mode],
+            font=self.default_font,
+        )
+        self.mode_label.grid(row=0, column=0, sticky="w")
+
+        self.mode_button = tk.Button(
+            option_frame,
+            text="끄기",
+            font=self.default_font,
+            command=self._change_set_mode,
+        )
+        self.mode_button.grid(row=0, column=1, padx=5)
+
+        self.mouse_label = tk.Label(
+            option_frame,
+            text="마우스 위치: (0, 0)",
+            font=self.default_font,
+        )
+        self.mouse_label.grid(row=0, column=2, padx=5)
+
+        click_zero_checkbox = tk.Checkbutton(
+            option_frame,
+            text="1~9 클릭 후 0번 위치 클릭",
+            font=self.default_font,
+            variable=self.is_click_zero_after,
+        )
+        click_zero_checkbox.grid(row=0, column=3, padx=10, sticky="w")
+
+        monitor_frame = tk.LabelFrame(
+            self.window,
+            text="팝업 자동 처리",
+            font=self.default_font,
+            padx=10,
+            pady=8,
+        )
+        monitor_frame.pack(fill="x", padx=10, pady=5)
+
+        auth_checkbox = tk.Checkbutton(
+            monitor_frame,
+            text="인증번호 자동 입력",
+            font=self.default_font,
+            variable=self.is_auth_enabled,
+            command=self._toggle_auth_monitor,
+        )
+        auth_checkbox.grid(row=0, column=0, padx=(0, 15), sticky="w")
+
+        warning_checkbox = tk.Checkbutton(
+            monitor_frame,
+            text="만석 경고 자동 닫기",
+            font=self.default_font,
+            variable=self.is_warning_enabled,
+            command=self._toggle_warning_monitor,
+        )
+        warning_checkbox.grid(row=0, column=1, padx=(0, 15), sticky="w")
+
+        self.connection_label = tk.Label(
+            monitor_frame,
+            text="MDmain.exe 연결 대기 중",
+            bg="#ffd966",
+            font=self.default_font,
+            padx=8,
+            pady=3,
+        )
+        self.connection_label.grid(row=0, column=2, sticky="w")
+
+        content_frame = tk.Frame(self.window)
+        content_frame.pack(fill="both", expand=True, padx=10, pady=5)
+
+        position_frame = tk.LabelFrame(
+            content_frame,
+            text="마우스 위치 (왼쪽 Alt + 상단 숫자키)",
+            font=self.default_font,
+            padx=8,
+            pady=6,
+        )
+        position_frame.pack(side="left", fill="y")
+
+        for index in range(10):
+            label = tk.Label(
+                position_frame,
+                text=f"위치{index} 할당 되지 않음",
+                bg=self.colors[False],
+                font=self.default_font,
+                width=36,
+                anchor="w",
+            )
+            label.pack(anchor="w", pady=2)
+            self.position_labels.append(label)
+
+        log_frame = tk.LabelFrame(
+            content_frame,
+            text="최근 처리 내역",
+            font=self.default_font,
+            padx=8,
+            pady=6,
+        )
+        log_frame.pack(side="left", fill="both", expand=True, padx=(10, 0))
+
+        scrollbar = tk.Scrollbar(log_frame)
+        scrollbar.pack(side="right", fill="y")
+
+        self.log_text = tk.Text(
+            log_frame,
+            state="disabled",
+            wrap="word",
+            font=("Malgun Gothic", 10),
+            yscrollcommand=scrollbar.set,
+        )
+        self.log_text.pack(fill="both", expand=True)
+        scrollbar.config(command=self.log_text.yview)
+
+        self.log_text.tag_configure("connection", foreground="#1f4e79")
+        self.log_text.tag_configure("action", foreground="#38761d")
+        self.log_text.tag_configure("error", foreground="#cc0000")
+
+    def _change_set_mode(self) -> None:
+        self.is_set_mode = not self.is_set_mode
+        self.mode_label.config(
+            bg=self.colors[self.is_set_mode],
+            text=f"설정 모드 {'켜짐' if self.is_set_mode else '꺼짐'}",
+        )
+        self.mode_button.config(text="끄기" if self.is_set_mode else "켜기")
+
+    def _toggle_auth_monitor(self) -> None:
+        enabled = self.is_auth_enabled.get()
+        self.popup_monitor.set_auth_enabled(enabled)
+        self._append_log(
+            f"인증번호 자동 입력 {'켜짐' if enabled else '꺼짐'}",
+            EventKind.ACTION,
+        )
+
+    def _toggle_warning_monitor(self) -> None:
+        enabled = self.is_warning_enabled.get()
+        self.popup_monitor.set_warning_enabled(enabled)
+        self._append_log(
+            f"만석 경고 자동 닫기 {'켜짐' if enabled else '꺼짐'}",
+            EventKind.ACTION,
+        )
+
+    def _update_mouse_position(self) -> None:
+        if self.is_closing:
+            return
+        try:
+            x, y = pyautogui.position()
+            self.mouse_label.config(text=f"마우스 위치: ({x}, {y})")
+        except pyautogui.FailSafeException:
+            self._append_log("PyAutoGUI 안전장치가 작동했습니다.", EventKind.ERROR)
+            self.close()
+            return
+        self.window.after(100, self._update_mouse_position)
+
+    def _register_mouse_hotkeys(self) -> None:
+        try:
+            for digit, scan_code in TOP_ROW_DIGIT_SCAN_CODES.items():
+                hotkey = keyboard.add_hotkey(
+                    (LEFT_ALT_SCAN_CODE, scan_code),
+                    self._queue_digit,
+                    args=(digit,),
+                    suppress=True,
+                )
+                self.keyboard_hotkeys.append(hotkey)
+        except Exception as exc:  # noqa: BLE001 - keyboard exposes OS-specific failures
+            self._unregister_mouse_hotkeys()
+            self._append_log(f"전역 단축키 등록 오류: {exc}", EventKind.ERROR)
+
+    def _unregister_mouse_hotkeys(self) -> None:
+        for hotkey in self.keyboard_hotkeys:
             try:
-                click_given_position(key)
-                click_given_position("0")
-                print(f"{key}번 위치 클릭 후 0번 위치 클릭 완료")
-            except KeyError as e:
-                print(f"클릭 실패: 위치 {e.args[0]}이(가) 할당되지 않았습니다.")
-        else:
+                keyboard.remove_hotkey(hotkey)
+            except Exception:  # noqa: BLE001, S110 - cleanup must continue
+                pass
+        self.keyboard_hotkeys.clear()
+
+    def _queue_digit(self, key: str) -> None:
+        if self.is_closing or self.popup_monitor.input_in_progress:
+            return
+        self.key_events.put(key)
+
+    def _drain_queues(self) -> None:
+        if self.is_closing:
+            return
+
+        while True:
             try:
-                click_given_position(key)
-            except KeyError:
-                print(f"클릭 실패: 위치 {key}이(가) 할당되지 않았습니다.")
+                key = self.key_events.get_nowait()
+            except queue.Empty:
+                break
+            self._handle_digit(key)
+
+        while True:
+            try:
+                event = self.monitor_events.get_nowait()
+            except queue.Empty:
+                break
+            self._handle_monitor_event(event)
+
+        self.window.after(50, self._drain_queues)
+
+    def _handle_digit(self, key: str) -> None:
+        if self.is_set_mode:
+            point = pyautogui.position()
+            self.positions[key] = point
+            self.position_labels[int(key)].config(
+                bg=self.colors[True],
+                text=f"위치{key} ({point.x}, {point.y})로 할당됨",
+            )
+            return
+
+        if key not in self.positions:
+            self._append_log(
+                f"클릭 실패: 위치 {key}이(가) 할당되지 않았습니다.",
+                EventKind.ERROR,
+            )
+            return
+
+        try:
+            pyautogui.click(x=self.positions[key].x, y=self.positions[key].y)
+
+            if self.is_click_zero_after.get() and "1" <= key <= "9":
+                if "0" not in self.positions:
+                    self._append_log(
+                        "클릭 실패: 위치 0이 할당되지 않았습니다.",
+                        EventKind.ERROR,
+                    )
+                    return
+                pyautogui.click(x=self.positions["0"].x, y=self.positions["0"].y)
+                self._append_log(
+                    f"{key}번 위치 클릭 후 0번 위치 클릭 완료",
+                    EventKind.ACTION,
+                )
+        except pyautogui.PyAutoGUIException as exc:
+            self._append_log(f"마우스 클릭 오류: {exc}", EventKind.ERROR)
+
+    def _handle_monitor_event(self, event: MonitorEvent) -> None:
+        if event.connection_state is not None:
+            color_by_state = {
+                ConnectionState.WAITING: "#ffd966",
+                ConnectionState.CONNECTED: "#93c47d",
+                ConnectionState.DISCONNECTED: "#e06666",
+            }
+            self.connection_label.config(
+                text=event.message,
+                bg=color_by_state[event.connection_state],
+            )
+        self._append_log(event.message, event.kind, event.timestamp)
+
+    def _append_log(
+        self,
+        message: str,
+        kind: EventKind,
+        timestamp: datetime | None = None,
+    ) -> None:
+        occurred_at = timestamp or datetime.now().astimezone()
+        line = f"[{occurred_at:%H:%M:%S}] {message}\n"
+        self.log_lines.append((line, kind))
+
+        self.log_text.config(state="normal")
+        self.log_text.delete("1.0", "end")
+        for log_line, log_kind in self.log_lines:
+            self.log_text.insert("end", log_line, log_kind.value)
+        self.log_text.see("end")
+        self.log_text.config(state="disabled")
+
+    def close(self) -> None:
+        if self.is_closing:
+            return
+        self.is_closing = True
+
+        self._unregister_mouse_hotkeys()
+
+        self.popup_monitor.stop(timeout=2.0)
+        self.window.destroy()
+
+    def run(self) -> None:
+        self.window.mainloop()
 
 
-# GUI
-option_frame = Frame(window)
-option_frame.pack(side="top", anchor="w", padx=10, pady=10)
-
-mode_label = Label(
-    option_frame,
-    text="설정 모드 " + ("켜짐" if is_set_mode else "꺼짐"),
-    bg=default_color[is_set_mode],
-    font=default_font,
-)
-mode_label.grid(row=0, column=0)
-
-mode_button = Button(
-    option_frame,
-    text="끄기" if is_set_mode else "켜기",
-    font=default_font,
-    command=change_set_mode,
-)
-mode_button.grid(row=0, column=1, padx=5)
-
-mouse_label = Label(
-    option_frame,
-    text="(0,0)",
-    font=default_font,
-)
-mouse_label.grid(row=0, column=2, padx=5)
-
-click_zero_checkbox = Checkbutton(
-    option_frame,
-    text="1~9 클릭 후 0번 위치 클릭",
-    font=default_font,
-    variable=is_click_zero_after,
-)
-click_zero_checkbox.grid(row=0, column=3, padx=10)
+def main() -> None:
+    window = tk.Tk()
+    app = ApplyMacroApp(window)
+    app.run()
 
 
-position_frame = Frame(window)
-position_frame.pack(side="left", anchor="n", padx=10)
-
-position_labels: list[Label] = []
-for i in range(10):
-    is_assign = str(i) in positions
-    position_label_text = f"위치{i} " + (
-        f"({positions[str(i)].x}, {positions[str(i)].y})로 할당됨"
-        if is_assign
-        else "할당 되지 않음"
-    )
-
-    position_label = Label(
-        position_frame,
-        text=position_label_text,
-        bg=default_color[is_assign],
-        font=default_font,
-        width=40,
-        anchor="w",
-    )
-    position_label.pack(anchor="w", pady=2)
-    position_labels.append(position_label)
-
-update_mouse_position()
-keyboard.on_press(handle_key_press)
-
-window.mainloop()
+if __name__ == "__main__":
+    main()
