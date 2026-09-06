@@ -24,11 +24,16 @@ jobs:
         uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9
         with:
           version: "0.12.10"
-          python-version: "3.14"
+          python-version: "3.14.2"
           enable-cache: true
 
       - name: Install locked dependencies
         run: uv sync --locked --group dev
+
+      - name: Verify Python version
+        run: >-
+          uv run python -c
+          "import sys; assert sys.version_info[:3] == (3, 14, 2), sys.version"
 
       - name: Verify tag matches project version
         shell: pwsh
@@ -48,13 +53,25 @@ jobs:
       - name: Build executable
         run: uv run pyinstaller --noconfirm --clean ApplyMacro.spec
 
-      - name: Package executable and checksum
+      - name: Package executable and checksums
         shell: pwsh
         run: |
           $archive = "ApplyMacro-windows-x64-${{ github.ref_name }}.zip"
+          $exeChecksum = (
+            "ApplyMacro-windows-x64-${{ github.ref_name }}" +
+            ".exe.sha256"
+          )
           Compress-Archive `
             -LiteralPath "dist\ApplyMacro.exe" `
             -DestinationPath $archive
+          $exeHash = (
+            Get-FileHash `
+              -Algorithm SHA256 `
+              -LiteralPath "dist\ApplyMacro.exe"
+          ).Hash.ToLowerInvariant()
+          "$exeHash  ApplyMacro.exe" | Set-Content `
+            -LiteralPath $exeChecksum `
+            -Encoding ascii
           $hash = (
             Get-FileHash -Algorithm SHA256 -LiteralPath $archive
           ).Hash.ToLowerInvariant()
@@ -62,15 +79,33 @@ jobs:
             -LiteralPath "$archive.sha256" `
             -Encoding ascii
 
-      - name: Create GitHub Release
+      - name: Upload candidate artifact
+        # actions/upload-artifact v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ApplyMacro-windows-x64-${{ github.ref_name }}
+          path: |
+            ApplyMacro-windows-x64-${{ github.ref_name }}.zip
+            ApplyMacro-windows-x64-${{ github.ref_name }}.zip.sha256
+            ApplyMacro-windows-x64-${{ github.ref_name }}.exe.sha256
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Create draft GitHub Release
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           $archive = "ApplyMacro-windows-x64-${{ github.ref_name }}.zip"
+          $exeChecksum = (
+            "ApplyMacro-windows-x64-${{ github.ref_name }}" +
+            ".exe.sha256"
+          )
           gh release create `
             "${{ github.ref_name }}" `
             $archive `
             "$archive.sha256" `
+            $exeChecksum `
+            --draft `
             --generate-notes `
             --title "Apply Macro ${{ github.ref_name }}"

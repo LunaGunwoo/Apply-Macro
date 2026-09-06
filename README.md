@@ -32,17 +32,18 @@ Python, uv, VSCode를 별도로 설치할 필요가 없습니다.
 
 ## Windows 보안 경고 및 PC방 사용
 
-현재 Release는 코드 서명되지 않았기 때문에 Windows에서 `Windows의 PC 보호` 경고가 표시될 수 있습니다.
+현재 Release는 코드 서명되지 않았기 때문에 Windows에서 `Windows의 PC 보호` 경고가 표시될 수 있습니다. 공개 Release는 GitHub에서 받은 ZIP과 EXE를 최신 Microsoft Defender로 검사한 뒤 게시합니다.
 
 - 이 GitHub 저장소에서 직접 받은 파일인지 확인하세요.
 - Release에 함께 첨부된 `.sha256` 파일과 다운로드한 ZIP의 SHA-256 값이 일치하는지 확인하세요.
 - 개인 PC에서 출처와 해시를 확인했다면 경고 창의 `추가 정보`에서 실행할 수 있습니다.
+- `위협 발견` 알림이 뜨거나 ZIP 또는 EXE가 격리되면 Defender를 끄거나 검사 예외를 추가하지 말고 해당 Release를 사용하지 마세요.
 - PC방이나 관리되는 PC에서 실행 선택지가 없거나 백신이 파일을 차단하면 해당 PC의 정책을 우회하지 마세요. 관리자 정책과 보안 프로그램에 따라 실행이 불가능할 수 있습니다.
 
 PowerShell에서 ZIP 파일의 해시를 확인하는 예시는 다음과 같습니다.
 
 ```powershell
-Get-FileHash -Algorithm SHA256 .\ApplyMacro-windows-x64-v0.2.0.zip
+Get-FileHash -Algorithm SHA256 .\ApplyMacro-windows-x64-v0.2.1.zip
 ```
 
 ## 개발 환경
@@ -67,11 +68,17 @@ uv run pyinstaller --noconfirm --clean ApplyMacro.spec
 
 ### GitHub Release 만들기
 
-`pyproject.toml`의 버전과 같은 `vX.Y.Z` 태그를 푸시하면 GitHub Actions가 Windows x64 실행 파일을 빌드하고 ZIP과 SHA-256 파일을 Release에 자동으로 첨부합니다.
+`pyproject.toml`의 버전과 같은 `vX.Y.Z` 태그를 푸시하면 GitHub Actions가 Python 3.14.2로 Windows x64 실행 파일을 빌드합니다. ZIP, ZIP SHA-256, EXE SHA-256은 Actions artifact와 Draft Release에 첨부되며 자동으로 공개되지 않습니다.
 
 ```powershell
-git tag v0.2.0
-git push origin v0.2.0
+git tag v0.2.1
+git push origin v0.2.1
 ```
 
-태그를 만들기 전에 테스트와 로컬 EXE 실행을 먼저 확인하세요.
+Actions에서 받은 ZIP을 실제로 다운로드해 최신 Microsoft Defender로 ZIP과 압축 해제 폴더를 검사하고, EXE 실행까지 확인하세요. 검증을 통과한 경우에만 Draft를 공개합니다.
+
+```powershell
+gh release edit v0.2.1 --draft=false --latest
+```
+
+단일 EXE가 Defender에 탐지되면 해당 Draft를 공개하지 않고 PyInstaller `onedir` 방식의 portable 폴더 ZIP으로 다시 빌드하고 같은 검증을 반복합니다.
