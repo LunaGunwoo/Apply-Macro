@@ -43,7 +43,7 @@ Apply Macro 실행 중에는 F1부터 F11까지 전역 단축키로 사용하므
 PowerShell에서 ZIP 파일의 해시를 확인하는 예시는 다음과 같습니다.
 
 ```powershell
-Get-FileHash -Algorithm SHA256 .\ApplyMacro-windows-x64-v0.2.3.zip
+Get-FileHash -Algorithm SHA256 .\ApplyMacro-windows-x64-v0.2.4.zip
 ```
 
 ## 개발 환경
@@ -71,14 +71,14 @@ uv run pyinstaller --noconfirm --clean ApplyMacro.spec
 `pyproject.toml`의 버전과 같은 `vX.Y.Z` 태그를 푸시하면 GitHub Actions가 Python 3.14.2로 Windows x64 실행 파일을 빌드합니다. ZIP, ZIP SHA-256, EXE SHA-256은 Actions artifact와 Draft Release에 첨부되며 자동으로 공개되지 않습니다.
 
 ```powershell
-git tag v0.2.3
-git push origin v0.2.3
+git tag v0.2.4
+git push origin v0.2.4
 ```
 
 Actions에서 받은 ZIP을 실제로 다운로드해 최신 Microsoft Defender로 ZIP과 압축 해제 폴더를 검사하고, EXE 실행까지 확인하세요. 검증을 통과한 경우에만 Draft를 공개합니다.
 
 ```powershell
-gh release edit v0.2.3 --draft=false --latest
+gh release edit v0.2.4 --draft=false --latest
 ```
 
 단일 EXE가 Defender에 탐지되면 해당 Draft를 공개하지 않고 PyInstaller `onedir` 방식의 portable 폴더 ZIP으로 다시 빌드하고 같은 검증을 반복합니다.
