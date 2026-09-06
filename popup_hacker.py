@@ -178,7 +178,9 @@ class PopupMonitor:
 
     def _try_connect(self) -> None:
         try:
-            application = Application(backend="win32").connect(
+            # UIA connection monitoring is independent of the target process
+            # bitness. Popup controls still use the proven win32 backend below.
+            application = Application(backend="uia").connect(
                 path=self.process_name,
                 timeout=self.connect_timeout,
             )

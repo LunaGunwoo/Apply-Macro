@@ -12,7 +12,7 @@ class FakeApplication:
     process = 4321
 
     def __init__(self, backend: str) -> None:
-        assert backend == "win32"
+        assert backend == "uia"
 
     def connect(self, *, path: str, timeout: float) -> FakeApplication:
         assert path == "MDmain.exe"
