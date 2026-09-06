@@ -3,6 +3,7 @@ from __future__ import annotations
 import queue
 import tkinter as tk
 from collections import deque
+from collections.abc import Callable
 from datetime import datetime
 
 import keyboard
@@ -12,21 +13,26 @@ from popup_hacker import ConnectionState, EventKind, MonitorEvent, PopupMonitor
 
 Point = pyautogui.Point
 
-# Windows Set 1 scan codes are used so the shortcut only matches the physical
-# number row. The named digit keys also include numpad scan codes in `keyboard`.
-LEFT_ALT_SCAN_CODE = 56
-TOP_ROW_DIGIT_SCAN_CODES = {
-    "1": 2,
-    "2": 3,
-    "3": 4,
-    "4": 5,
-    "5": 6,
-    "6": 7,
-    "7": 8,
-    "8": 9,
-    "9": 10,
-    "0": 11,
+# Windows Set 1 scan codes keep the shortcuts tied to the physical F keys.
+FUNCTION_KEY_SCAN_CODES = {
+    1: 59,
+    2: 60,
+    3: 61,
+    4: 62,
+    5: 63,
+    6: 64,
+    7: 65,
+    8: 66,
+    9: 67,
+    10: 68,
+    11: 87,
 }
+COURSE_KEYS = frozenset(range(1, 11))
+ENROLLMENT_KEY = 11
+KEY_QUEUE_POLL_MS = 10
+MOUSE_ACTION_PAUSE_SECONDS = 0.01
+
+pyautogui.PAUSE = MOUSE_ACTION_PAUSE_SECONDS
 
 
 class ApplyMacroApp:
@@ -40,17 +46,18 @@ class ApplyMacroApp:
 
         self.default_font = ("Helvetica", 14, "bold")
         self.colors = {True: "skyblue", False: "pink"}
-        self.positions: dict[str, Point] = {}
-        self.position_labels: list[tk.Label] = []
+        self.positions: dict[int, Point] = {}
+        self.position_labels: dict[int, tk.Label] = {}
         self.is_set_mode = True
         self.is_closing = False
-        self.keyboard_hotkeys: list[object] = []
+        self.keyboard_hooks: list[Callable[[], None]] = []
+        self.pressed_function_keys: set[int] = set()
 
         self.monitor_events: queue.Queue[MonitorEvent] = queue.Queue()
-        self.key_events: queue.Queue[str] = queue.Queue()
+        self.key_events: queue.Queue[int] = queue.Queue()
         self.log_lines: deque[tuple[str, EventKind]] = deque(maxlen=self.LOG_LIMIT)
 
-        self.is_click_zero_after = tk.BooleanVar(value=False)
+        self.is_click_enrollment_after = tk.BooleanVar(value=False)
         self.is_auth_enabled = tk.BooleanVar(value=True)
         self.is_warning_enabled = tk.BooleanVar(value=True)
 
@@ -63,7 +70,7 @@ class ApplyMacroApp:
 
         self.window.protocol("WM_DELETE_WINDOW", self.close)
         self.window.after(100, self._update_mouse_position)
-        self.window.after(50, self._drain_queues)
+        self.window.after(KEY_QUEUE_POLL_MS, self._drain_queues)
 
     def _build_ui(self) -> None:
         option_frame = tk.Frame(self.window)
@@ -92,13 +99,13 @@ class ApplyMacroApp:
         )
         self.mouse_label.grid(row=0, column=2, padx=5)
 
-        click_zero_checkbox = tk.Checkbutton(
+        click_enrollment_checkbox = tk.Checkbutton(
             option_frame,
-            text="1~9 클릭 후 0번 위치 클릭",
+            text="F1~F10 과목 클릭 후 F11 수강신청 클릭",
             font=self.default_font,
-            variable=self.is_click_zero_after,
+            variable=self.is_click_enrollment_after,
         )
-        click_zero_checkbox.grid(row=0, column=3, padx=10, sticky="w")
+        click_enrollment_checkbox.grid(row=0, column=3, padx=10, sticky="w")
 
         monitor_frame = tk.LabelFrame(
             self.window,
@@ -142,24 +149,25 @@ class ApplyMacroApp:
 
         position_frame = tk.LabelFrame(
             content_frame,
-            text="마우스 위치 (왼쪽 Alt + 상단 숫자키)",
+            text="마우스 위치 (F1~F11)",
             font=self.default_font,
             padx=8,
             pady=6,
         )
         position_frame.pack(side="left", fill="y")
 
-        for index in range(10):
+        for key in FUNCTION_KEY_SCAN_CODES:
+            position_name = self._position_name(key)
             label = tk.Label(
                 position_frame,
-                text=f"위치{index} 할당 되지 않음",
+                text=f"{position_name}: 할당되지 않음",
                 bg=self.colors[False],
                 font=self.default_font,
                 width=36,
                 anchor="w",
             )
             label.pack(anchor="w", pady=2)
-            self.position_labels.append(label)
+            self.position_labels[key] = label
 
         log_frame = tk.LabelFrame(
             content_frame,
@@ -225,31 +233,45 @@ class ApplyMacroApp:
 
     def _register_mouse_hotkeys(self) -> None:
         try:
-            for digit, scan_code in TOP_ROW_DIGIT_SCAN_CODES.items():
-                hotkey = keyboard.add_hotkey(
-                    (LEFT_ALT_SCAN_CODE, scan_code),
-                    self._queue_digit,
-                    args=(digit,),
-                    # Suppressed modifier hotkeys can leave Alt logically held
-                    # on Windows. Observe the shortcut without blocking or
-                    # replaying any keyboard events.
-                    suppress=False,
+            for key, scan_code in FUNCTION_KEY_SCAN_CODES.items():
+                remove_hook = keyboard.hook_key(
+                    scan_code,
+                    lambda event, key=key: self._handle_function_key_event(
+                        key, event
+                    ),
+                    # Reserve F1-F11 while the app is running so their normal
+                    # Help/Refresh/Menu actions do not fire as well.
+                    suppress=True,
                 )
-                self.keyboard_hotkeys.append(hotkey)
+                self.keyboard_hooks.append(remove_hook)
         except Exception as exc:  # noqa: BLE001 - keyboard exposes OS-specific failures
             self._unregister_mouse_hotkeys()
             self._append_log(f"전역 단축키 등록 오류: {exc}", EventKind.ERROR)
 
     def _unregister_mouse_hotkeys(self) -> None:
-        for hotkey in self.keyboard_hotkeys:
+        for remove_hook in self.keyboard_hooks:
             try:
-                keyboard.remove_hotkey(hotkey)
+                remove_hook()
             except Exception:  # noqa: BLE001, S110 - cleanup must continue
                 pass
-        self.keyboard_hotkeys.clear()
+        self.keyboard_hooks.clear()
+        self.pressed_function_keys.clear()
 
-    def _queue_digit(self, key: str) -> None:
-        if self.is_closing or self.popup_monitor.input_in_progress:
+    def _handle_function_key_event(
+        self, key: int, event: keyboard.KeyboardEvent
+    ) -> bool:
+        if event.event_type == keyboard.KEY_UP:
+            self.pressed_function_keys.discard(key)
+        elif (
+            event.event_type == keyboard.KEY_DOWN
+            and key not in self.pressed_function_keys
+        ):
+            self.pressed_function_keys.add(key)
+            self._queue_shortcut(key)
+        return False
+
+    def _queue_shortcut(self, key: int) -> None:
+        if self.is_closing:
             return
         self.key_events.put(key)
 
@@ -257,12 +279,13 @@ class ApplyMacroApp:
         if self.is_closing:
             return
 
-        while True:
-            try:
-                key = self.key_events.get_nowait()
-            except queue.Empty:
-                break
-            self._handle_digit(key)
+        if not self.popup_monitor.input_in_progress:
+            while True:
+                try:
+                    key = self.key_events.get_nowait()
+                except queue.Empty:
+                    break
+                self._handle_shortcut(key)
 
         while True:
             try:
@@ -271,21 +294,28 @@ class ApplyMacroApp:
                 break
             self._handle_monitor_event(event)
 
-        self.window.after(50, self._drain_queues)
+        self.window.after(KEY_QUEUE_POLL_MS, self._drain_queues)
 
-    def _handle_digit(self, key: str) -> None:
+    @staticmethod
+    def _position_name(key: int) -> str:
+        if key == ENROLLMENT_KEY:
+            return "F11 수강신청"
+        return f"F{key} 과목 {key}"
+
+    def _handle_shortcut(self, key: int) -> None:
+        position_name = self._position_name(key)
         if self.is_set_mode:
             point = pyautogui.position()
             self.positions[key] = point
-            self.position_labels[int(key)].config(
+            self.position_labels[key].config(
                 bg=self.colors[True],
-                text=f"위치{key} ({point.x}, {point.y})로 할당됨",
+                text=f"{position_name}: ({point.x}, {point.y})로 할당됨",
             )
             return
 
         if key not in self.positions:
             self._append_log(
-                f"클릭 실패: 위치 {key}이(가) 할당되지 않았습니다.",
+                f"클릭 실패: {position_name} 위치가 할당되지 않았습니다.",
                 EventKind.ERROR,
             )
             return
@@ -293,16 +323,17 @@ class ApplyMacroApp:
         try:
             pyautogui.click(x=self.positions[key].x, y=self.positions[key].y)
 
-            if self.is_click_zero_after.get() and "1" <= key <= "9":
-                if "0" not in self.positions:
+            if self.is_click_enrollment_after.get() and key in COURSE_KEYS:
+                if ENROLLMENT_KEY not in self.positions:
                     self._append_log(
-                        "클릭 실패: 위치 0이 할당되지 않았습니다.",
+                        "클릭 실패: F11 수강신청 위치가 할당되지 않았습니다.",
                         EventKind.ERROR,
                     )
                     return
-                pyautogui.click(x=self.positions["0"].x, y=self.positions["0"].y)
+                enrollment_point = self.positions[ENROLLMENT_KEY]
+                pyautogui.click(x=enrollment_point.x, y=enrollment_point.y)
                 self._append_log(
-                    f"{key}번 위치 클릭 후 0번 위치 클릭 완료",
+                    f"F{key} 과목 클릭 후 F11 수강신청 클릭 완료",
                     EventKind.ACTION,
                 )
         except pyautogui.PyAutoGUIException as exc:
